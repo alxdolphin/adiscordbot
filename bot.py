@@ -3,7 +3,8 @@ from discord.ext import commands
 import os
 import yt_dlp as youtube_dl
 import asyncio
-from dotenv.main import load_dotenv
+from dotenv import load_dotenv
+
 load_dotenv() 
 
 TOKEN = os.getenv('TOKEN')
@@ -17,12 +18,11 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 async def on_ready():
     print(f'We have logged in as {bot.user}')
 
-
 # BASIC
 
 @bot.command()
-async def hello(ctx):
-    await ctx.send('Hello!')
+async def src(ctx):
+    await ctx.send('https://github.com/alxdolphin/adiscordbot')
 
 @bot.command()
 async def kys(ctx):
@@ -46,7 +46,7 @@ async def leave(ctx):
         await ctx.guild.voice_client.disconnect()
         await ctx.message.delete()
     else:
-        await ctx.send('I am not in a voice channel.')
+        await ctx.send(f'!ban {ctx.author}')
 
 class Music(commands.Cog):
     def __init__(self, bot):
@@ -71,7 +71,6 @@ class Music(commands.Cog):
             'options': '-vn'
         }
 
-    # searching the item on youtube
     def search_yt(self, item):
         with youtube_dl.YoutubeDL(self.YDL_OPTIONS) as ydl:
             try:
@@ -88,12 +87,21 @@ class Music(commands.Cog):
 
     @commands.command()
     async def play(self, ctx, *, search: str):
+        await ctx.message.delete()
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             if ctx.voice_client is None:
-                await channel.connect()
+                try:
+                    await channel.connect()
+                except discord.errors.ClientException as e:
+                    await ctx.send(f'Could not connect to the voice channel: {str(e)}')
+                    return
             elif ctx.voice_client.channel != channel:
-                await ctx.voice_client.move_to(channel)
+                try:
+                    await ctx.voice_client.move_to(channel)
+                except discord.errors.ClientException as e:
+                    await ctx.send(f'Could not move to the voice channel: {str(e)}')
+                    return
 
             ctx.voice_client.stop()
 
@@ -111,6 +119,14 @@ class Music(commands.Cog):
                 print(f'Error: {str(e)}')
         else:
             await ctx.send('Join a voice channel first.')
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        if member.bot and before.channel is not None and after.channel is None:
+            try:
+                await before.channel.guild.voice_client.disconnect()
+            except AttributeError:
+                pass
 
 async def main():
     await bot.add_cog(Music(bot))
