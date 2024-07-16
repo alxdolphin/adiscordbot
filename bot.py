@@ -3,7 +3,7 @@ from discord.ext import commands
 import os
 import yt_dlp as youtube_dl
 import asyncio
-from dotenv import load_dotenv
+from dotenv.main import load_dotenv
 
 load_dotenv() 
 
@@ -30,8 +30,8 @@ async def kys(ctx):
 
 @bot.command()
 async def echo(ctx, *, message):
-    await ctx.message.delete()
     await ctx.send(message)
+    await ctx.message.delete()
 
 @bot.command()
 async def ping(ctx):
@@ -87,7 +87,6 @@ class Music(commands.Cog):
 
     @commands.command()
     async def play(self, ctx, *, search: str):
-        await ctx.message.delete()
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             if ctx.voice_client is None:
@@ -119,6 +118,7 @@ class Music(commands.Cog):
                 print(f'Error: {str(e)}')
         else:
             await ctx.send('Join a voice channel first.')
+        await ctx.message.delete()
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
