@@ -4,6 +4,7 @@ import os
 import yt_dlp as youtube_dl
 import asyncio
 from dotenv.main import load_dotenv
+import concurrent.futures
 
 load_dotenv() 
 
@@ -64,17 +65,46 @@ class Music(commands.Cog):
             'quiet': True,
             'no_warnings': True,
             'default_search': 'auto',
-            'source_address': '0.0.0.0'  # Bind to IPv4 since IPv6 addresses cause issues sometimes
+            'source_address': '0.0.0.0',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'opus',
+            }],
         }
         self.FFMPEG_OPTIONS = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-            'options': '-vn'
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -analyzeduration 0 -loglevel 0',
+            'options': '-vn -bufsize 3000k -ac 2 -ar 48000'
         }
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
-    def search_yt(self, item):
+    async def search_yt(self, item):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self._search_yt, item)
+
+    def _search_yt(self, item):
         with youtube_dl.YoutubeDL(self.YDL_OPTIONS) as ydl:
             try:
                 info = ydl.extract_info("ytsearch:%s" % item, download=False)['entries'][0]
+            except Exception:
+                return False
+        info = ydl.sanitize_info(info)
+        url = info['url']
+        title = info['title']
+        return {
+            'title': title,
+            'source': url
+        }
+
+    async def search_sc(self, item):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self._search_sc, item)
+
+    def _search_sc(self, item):
+        sc_options = self.YDL_OPTIONS.copy()
+        sc_options['default_search'] = 'scsearch'
+        with youtube_dl.YoutubeDL(sc_options) as ydl:
+            try:
+                info = ydl.extract_info("scsearch:%s" % item, download=False)['entries'][0]
             except Exception:
                 return False
         info = ydl.sanitize_info(info)
@@ -105,13 +135,15 @@ class Music(commands.Cog):
             ctx.voice_client.stop()
 
             try:
-                info = self.search_yt(search)
+                info = await self.search_yt(search)
                 if not info:
-                    await ctx.send('Could not find the requested video.')
-                    return
+                    info = await self.search_sc(search)
+                    if not info:
+                        await ctx.send('Could not find the requested video or audio.')
+                        return
 
                 source = await discord.FFmpegOpusAudio.from_probe(info['source'], **self.FFMPEG_OPTIONS)
-                ctx.voice_client.play(source, after=lambda e: print('Player error: %s' % e) if e else None)
+                ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(ctx), self.bot.loop))
                 await ctx.send(f'Now playing: {info["title"]}')
             except Exception as e:
                 await ctx.send(f'An error occurred: {str(e)}')
@@ -119,6 +151,7 @@ class Music(commands.Cog):
         else:
             await ctx.send('Join a voice channel first.')
         await ctx.message.delete()
+
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
